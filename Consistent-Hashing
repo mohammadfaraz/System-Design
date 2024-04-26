@@ -1,0 +1,49 @@
+CONSISTENT HASHING
+	1)  Ideal for Distributing data/load evenly across servers
+	2) A hashing technique in which the keys are distributed in a such a way that during a node failure only the k/n keys are remapped. K being the number of key and n being the number of nodes
+	
+
+Problem
+	1) The problem with traditional hashing is that that whenever a hashtable is resized nearly all the keys are remapped
+	2) Consider a scenario, We have 4 servers and the hash function and there modulo is used to calculate the index of the server for each data is (hash%4)
+	3) Then the distribution looks like this
+		
+	4) Now one of the server goes down in this case the hash function will be changed to (hash%3).
+	5) 
+	6) most keys are redistributed, not just the ones originally stored in the offline server (server 1). This means that when server 1 goes down, most cache clients will connect to the wrong servers to fetch data. This causes a storm of cache misses
+
+Hash Space And Hash Ring
+	1) Hash space
+		a. 
+	2) Hash Ring
+		a. 
+
+Hash Server
+	1) servers mapped to the hash ring using their hash of IP or name or anything.
+
+Hash Keys
+		
+To determine which server a key is stored on, we go clockwise from the key position on the ring until a server is found. Figure 5-7 explains this process. Going clockwise, key0 is stored on server 0; key1 is stored on server 1; key2 is stored on server 2 and key3 is stored on server 3.
+Adding a server will result only into redistrubtion of certain set of keys. In the ex below After a new server 4 is added, only key0 needs to be redistributed. k1, k2, and k3 remain on the same servers. Let us take a close look at the logic. Before server 4 is added, key0 is stored on server 0. Now, key0 will be stored on server 4 because server 4 is the first server it encounters by going clockwise from key0’s position on the ring. The other keys are not redistributed based on consistent hashing algorithm. 
+
+Similarly for the removal of server only the k/n keys will be remapped
+
+
+Issues with the current Approach
+	1) Inconsistent key distribution. In the example most of the keys are mapped to server 2. However server 1 and server 3 have no data
+		a. 
+	2) Uneven size of partitions. Resulting in bloating of a server while others are free
+
+Solution to the Above Problem
+Vnodes. It is a techniques in which a real node is represented by multiple vnodes on the ring. 
+
+	1) To find which server a key is stored on, we go clockwise from the key’s location and find the first virtual node encountered on the ring.
+	2) As vnodes increase the distribution becomes more even because of standard deviation getting smaller with vnodes
+	
+
+Usecases
+	1) DynamoDB
+	2) Cassandra
+	3) Discord Chat Application
+	4) CDN
+	5) Load Balancer
