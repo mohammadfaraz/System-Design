@@ -1,0 +1,146 @@
+ate Limiter
+Ã rate limiter is used to control the rate of traffic by a client. In other words, it can be defined as the number of client requests allowed to be sent over a specific period. 
+Benefits
+	1) Prevents starvation of resources caused by DOS
+	2) Reduce cost. Limiting excess requests means fewer servers
+	3) Prevents Overloading
+
+Step 1: Understand the problem. Ask Functional Requirements
+	1) Server side or client side rate limiter
+	2) It should be capable to handle different sets of rules
+	3) It will be for distributed systems
+	4) Should be separate from the application logic, like separate service or along with API gateway
+	5) Exception Handling
+	6) Fault Tolerant
+	7) Low Latency
+
+STEP 2: High Level Architecture
+
+Brief of API Gateway
+	1) supports rate limiting
+	2) SSL termination
+	3) Authentication
+	4) IP whitelisting
+	5) servicing static content
+
+Algorithms for Rate Limiting
+	1) Token Bucket
+		a. Simple, well understood, Widely used
+		b. Works as follows:
+			i. A token bucket is a container that has pre-defined capacity. Tokens are put in the bucket at preset rates periodically. Once the bucket is full, no more tokens are added
+			ii. Each request consumes one token. When a request arrives, we check if there are enough tokens in the bucket. If YES, take one token and forward the request. ELSE drop the token
+			iii. 
+		c. Takes 2 parameters
+			i. Bucket Size: The max number of token allowed in the bucket
+			ii. Refill Rate: number of tokens put in bucket periodically
+		d. Buckets are generally mapped to API endpoints. For example, If a user is allowed to make 1 post per second, add 150 friends per day then 3 buckets are required for each other
+		e. PROs:
+			i. Easy
+			ii. Memory Efficient
+			iii. Allows burst of traffic for short periods.
+		f. CONs:
+			i. Tuning them might be challenging
+	2) Leaky Bucket
+		a. Similar to token bucket except that request are processed at a fixed rate. Any incoming request is added to a FIFO queue.
+		b. Works as follows:
+			i. Request arrives, system checks if queue is full. If NOT add to queue else drop.
+			ii. Requests are pulled from the queue and processed at regular intervals
+		c. Takes 2 parameters
+			i. Bucket Size
+			ii. Outflow Rate: how many requests can be processed at a fixed rate
+		d. PROs:
+			i. Memory efficient
+			ii. Suitable for usecases where stable outflow rate is needed
+		e. CONs
+			i. Burst of traffic may fill the queue with old requests because of which recent requests will be rate limited
+			ii. Difficult to tune
+		f. 
+	3) Fixed Window Counter
+		a. Divides the timeline into fixed sized time windows and assign a counter for each winddow
+		b. Each request increments counter by one
+		c. Once the counterreaches a predefined threshold, new request are dropped until a new window starts
+		d. MAJOR PROBLEM: burst of traffic at the edges of the time windows may cause more requests than allowed quota to go through
+			i. 
+		e. PROs:
+			i. Memory efficient
+			ii. Easy to implement 
+			iii. Resetting quota at the end of unit time window fits certain usecases
+		f. CONs: 
+			i. Spike in traffic at the edges of  a window could cause more requests than allowed
+		g. 
+	4) Sliding Window log
+		a. Improvement over fixed sized window problem of failure to limit spike of traffic at the boundary of windows
+		b. Keeps track of request timestamps in cache. Such as sorted sets of redis
+		c. When new request comes in, removes all outdated timestamps, Outdated ones are defined as those older than the start of the current window
+		d. Add timestamp of the new request to the log
+		e. If the log size is the same or lower than allowed count, accept the request else drop it 
+		f. 
+		g. PROs:
+			i. Highly accurate
+		h. CONs:
+			i. Consumes memory as rejected request timestamps are also cached 
+	5) Sliding Window Counter
+		a. The sliding window counter algorithm is a hybrid approach that combines the fixed window counter and sliding window log
+		b. Assume the rate limiter allows a maximum of 7 requests per minute, and there are 5 requests in the previous minute and 3 in the current minute. For a new request that arrives at a 30% position in the current minute, the number of requests in the rolling window is calculated using the following formula:
+			i. Requests in current window + requests in the previous window * overlap percentage of the rolling window and previous window 
+		c. PROs:
+			i. It smooths out spikes in traffic because the rate is based on the average rate of the previous window. 
+			ii. It only works for not-so-strict look back window. It is an approximation of the actual rate because it assumes requests in the previous window are evenly distributed. However, this problem may not be as bad as it seems. According to experiments done by Cloudflare [10], only 0.003% of requests are wrongly allowed or rate limited among 400 million requests. 
+
+High Level Architecture
+	1) At high level, we need a counter to keep track of how many requests are sent from the same IP, account etc. If the counter is beyound the threshold, request is rejected. 
+	2) Counters can be stored in redis for quick retreival 
+	3) 
+	4) The client sends a request to rate limiting middleware.
+	5) Rate limiting middleware fetches the counter from the corresponding bucket in Redis 
+		a. checks if the limit is reached or not.
+		b. If the limit is reached, the request is rejected. 
+		c. If the limit is not reached, the request is sent to API servers. Meanwhile, the system increments the counter and saves it back to Redis
+
+STEP 3: Design Deep Dive
+	1) How are rules created?
+		a. We can use json structures to design our rules
+		b. 
+	2) Where are rules stored?
+		a. Rules can be stored in a file system
+	3) How to Handle requests that are rate limited
+		a. One way is to reject it, with all the necessary information
+			i. Status Code 429(too many requests)
+			ii. X-Ratelimit-Remaining: The remaining number of allowed requests within the window. 
+			iii. X-Ratelimit-Limit: It indicates how many calls the client can make per time window. 
+			iv. X-Ratelimit-Retry-After: The number of seconds to wait until you can make a request again without being throttled.
+		b. In case of system overload we can queue the request
+
+Detailed Design
+
+	1) Rules are stored on the disk. Workers pull rules from the disk and store them in the cache
+	2) When a client sends a request to the server, the request is sent to the rate limiter middleware first.
+	3) Rate limiter middleware loads rules from the cache. It fetches counters and last request timestamp from Redis cache. Based on the response, the rate limiter decides:
+		a. if the request is not rate limited, it is forwarded to API servers.
+		b. if the request is rate limited, the rate limiter returns 429 too many requests error to the client.
+		c. In the meantime, the request is either dropped or forwarded to the queue. 
+
+Rate Limiter in Distributed Environment
+	1) Challenges in Distributed environment
+		a. Race condition
+			i. Use Sorted sets of redis to make sure Atomicity is maintained
+			ii. 
+		b. Synchronization Issue
+			i. 
+			ii. One solution is use sticky session, but it is not efficient
+			iii. Other is use of centralized data stores like redis. 
+			iv. 
+
+Performance Optimization
+	1) Maintain multiple rate limiters in multiple data centers, So that request can be redirected to the nearest gateway
+	2) synchronize data with an eventual consistency model.
+
+Monitoring
+	1)  Important to monitor the performance of the rate limiter
+	2) Gauge efficiency of the rules and the algorithm used
+
+ Avoid Getting Rate Limited
+	1)  Use client cache to avoid making frequent API calls
+	2) Understand the limit and do not send too many requests in a short time frame.
+	3) Include code to catch exceptions or errors so your client can gracefully recover from exceptions.
+Add sufficient back off time to retry logic.
